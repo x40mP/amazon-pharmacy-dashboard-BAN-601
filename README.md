@@ -101,6 +101,6 @@ python -m pytest tests
 |---|---|
 | Anushree | Project coordination and planning |
 | Nishta | Domain expert |
-| Adrian | Programming and data |
+| Francis | Programming and data |
 | Mira | User interface |
-| Francis | Quality assurance and GitHub integration |
+| Adrian | Quality assurance and GitHub integration |
