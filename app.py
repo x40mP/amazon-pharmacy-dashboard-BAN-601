@@ -18,6 +18,8 @@ SAFETY_STOCK_FACTOR = 1.65  # roughly a 95% service level
 REVIEW_PERIOD_DAYS = 30     # inventory is reviewed and ordered monthly
 EXCESS_DAYS = 75            # more than this many days of stock is excess
 FORECAST_WEEKS = 8          # projected weeks shown on the demand trend chart
+TOP_N_URGENT = 10           # items shown on the inventory versus reorder point chart
+CHART_HEIGHT = 310          # pixels, sized so the dashboard fits on one laptop screen
 
 RISK_ORDER = ["Critical stockout risk", "Reorder soon", "Sufficient inventory", "Excess inventory"]
 RISK_COLORS = {
@@ -121,36 +123,36 @@ def demand_trend_chart(filtered, growth):
     weekly = filtered.set_index("date")["units_sold"].resample("W-SUN").sum()
     weekly = weekly.iloc[1:-1] if len(weekly) > 2 else weekly  # drop partial first and last weeks
     fig = go.Figure()
-    fig.add_trace(go.Scatter(x=weekly.index, y=weekly.values, mode="lines", name="Actual weekly units sold",
+    fig.add_trace(go.Scatter(x=weekly.index, y=weekly.values, mode="lines", name="Actual",
                              line=dict(color="#232F3E", width=2)))
     if len(weekly) >= 4:
         baseline = weekly.iloc[-(BASELINE_DAYS // 7):].mean() * (1 + growth)
         future = pd.date_range(weekly.index[-1], periods=FORECAST_WEEKS + 1, freq="W-SUN")
         fig.add_trace(go.Scatter(x=future, y=[weekly.iloc[-1]] + [baseline] * FORECAST_WEEKS, mode="lines",
-                                 name=f"Projected demand (+{growth:.0%})", line=dict(color="#FF9900", width=2, dash="dash")))
-    fig.update_layout(title="Weekly demand trend", xaxis_title="Week", yaxis_title="Units sold per week",
-                      legend=dict(orientation="h", y=-0.25), height=420, margin=dict(t=60, b=40))
+                                 name=f"Projected (+{growth:.0%})", line=dict(color="#FF9900", width=2, dash="dash")))
+    fig.update_layout(title="Weekly demand trend", xaxis_title=None, yaxis_title="Units sold per week",
+                      legend=dict(orientation="h", y=1.0, x=0, yanchor="bottom", font=dict(size=11)), height=CHART_HEIGHT, margin=dict(t=60, b=10, l=10, r=10))
     return fig
 
 
-def inventory_vs_reorder_chart(plan, single_center, top_n=15):
+def inventory_vs_reorder_chart(plan, single_center, top_n=TOP_N_URGENT):
     """Most urgent items on top. Urgency is current inventory divided by reorder point."""
     view = plan.assign(coverage=plan["current_inventory"] / plan["reorder_point"].where(plan["reorder_point"] > 0))
     view["coverage"] = view["coverage"].fillna(np.inf)
     if single_center:
         view["label"] = view["medicine_name"]
     else:
-        view["label"] = view["medicine_name"] + " (" + view["fulfillment_center"] + ")"
-        view = view.nsmallest(top_n, "coverage")
+        view["label"] = view["medicine_name"] + " (" + view["fulfillment_center"].str.replace("FC-", "") + ")"
+    view = view.nsmallest(top_n, "coverage")
     view = view.sort_values("coverage", ascending=False)  # plotly draws the last row at the top
     fig = go.Figure()
     fig.add_trace(go.Bar(y=view["label"], x=view["current_inventory"], orientation="h",
-                         name="Current inventory", marker_color="#232F3E"))
+                         name="Inventory", marker_color="#232F3E"))
     fig.add_trace(go.Bar(y=view["label"], x=view["reorder_point"], orientation="h",
                          name="Reorder point", marker_color="#FF9900"))
-    fig.update_layout(title="Current inventory versus reorder point", barmode="group",
-                      xaxis_title="Units", yaxis_title=None, height=max(360, 34 * len(view) + 120),
-                      legend=dict(orientation="h", y=-0.12), margin=dict(t=60, b=40, l=10))
+    fig.update_layout(title="Inventory versus reorder point", barmode="group",
+                      xaxis_title=None, yaxis_title=None, yaxis_automargin=True, height=CHART_HEIGHT,
+                      legend=dict(orientation="h", xref="container", x=0.02, y=0, yref="container", yanchor="bottom", font=dict(size=11)), margin=dict(t=40, b=45, l=10, r=10))
     return fig
 
 
@@ -159,21 +161,27 @@ def risk_distribution_chart(plan):
     labels = [r.replace(" ", "<br>", 1) for r in counts.index]
     fig = go.Figure(go.Bar(x=labels, y=counts.values, text=counts.values, textposition="outside",
                            marker_color=[RISK_COLORS[r] for r in counts.index]))
-    fig.update_layout(title="Inventory risk distribution", xaxis_title="Risk level",
+    fig.update_layout(title="Inventory risk distribution", xaxis_title=None,
                       yaxis_title="Medicine and center pairs", xaxis_tickangle=0,
-                      yaxis=dict(range=[0, max(counts.max() * 1.2, 1)]), height=420, margin=dict(t=60, b=40))
+                      yaxis=dict(range=[0, max(counts.max() * 1.2, 1)]), height=CHART_HEIGHT, margin=dict(t=60, b=10, l=10, r=10))
     return fig
 
 
 def main():
     st.set_page_config(page_title="Amazon Pharmacy Stockout Prevention", page_icon="💊", layout="wide")
-    df = load_data()
-
-    st.title("Amazon Pharmacy Demand Forecasting and Stockout Prevention")
-    st.caption(
-        "Planning tool for pharmacy inventory and fulfillment center managers. Built on synthetic data. "
-        "Does not make medical decisions or use patient data. Not an Amazon internal system."
+    # Tighten Streamlit's default spacing so the dashboard fits on one laptop screen
+    st.markdown(
+        """
+        <style>
+        .block-container {padding-top: 2.8rem; padding-bottom: 0.5rem;}
+        [data-testid="stMetricValue"] {font-size: 1.6rem;}
+        [data-testid="stMetric"] {padding: 0;}
+        h3 {padding-top: 0 !important;}
+        </style>
+        """,
+        unsafe_allow_html=True,
     )
+    df = load_data()
 
     # The three interactive controls
     st.sidebar.header("Filters and scenario")
@@ -182,12 +190,14 @@ def main():
     growth_pct = st.sidebar.slider("Expected demand growth (%)", min_value=0, max_value=30, value=0, step=1,
                                    help="Tests how higher demand changes risk, reorder point, and order quantity.")
     growth = growth_pct / 100
-
     st.sidebar.markdown("---")
     st.sidebar.caption(
         f"Data through {df['date'].max():%B %d, %Y}. Average daily demand uses the last {BASELINE_DAYS} days. "
-        f"Safety stock factor is {SAFETY_STOCK_FACTOR}."
+        f"Safety stock factor is {SAFETY_STOCK_FACTOR}. Synthetic data. Not an Amazon internal system and "
+        "does not make medical decisions."
     )
+
+    st.markdown("### 💊 Amazon Pharmacy Demand Forecasting and Stockout Prevention")
 
     filtered = filter_data(df, category, center)
     if filtered.empty:
@@ -203,50 +213,47 @@ def main():
     c3.metric("Inventory value on hand", f"${plan['inventory_value'].sum():,.0f}")
     c4.metric("Recommended order cost", f"${plan['order_cost'].sum():,.0f}")
 
-    if critical:
-        names = plan.loc[plan["risk_level"] == "Critical stockout risk"]
-        items = ", ".join(f"{r.medicine_name} at {r.fulfillment_center}" for r in names.itertuples())
-        st.error(f"Order now and expedite for {items}.")
+    tab_dash, tab_recs, tab_method = st.tabs(["Dashboard", "Recommendations", "How it works"])
 
-    st.subheader("Demand trend")
-    st.caption("Weekly units sold for the selected filters. The dashed line projects the recent baseline forward "
-               "with the expected growth applied.")
-    st.plotly_chart(demand_trend_chart(filtered, growth), use_container_width=True)
+    with tab_dash:
+        if critical:
+            st.markdown(f":red[**{critical} medicine and center pairs will run out before a normal order "
+                        "arrives.**] Order quantities are in the Recommendations tab.")
+        else:
+            st.markdown(":green[**No medicine is at critical stockout risk for these filters.**]")
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.plotly_chart(demand_trend_chart(filtered, growth), use_container_width=True)
+            st.caption("Dashed line applies the growth scenario.")
+        with col2:
+            st.plotly_chart(inventory_vs_reorder_chart(plan, center != "All fulfillment centers"),
+                            use_container_width=True)
+            st.caption(f"Units. {TOP_N_URGENT} most urgent. Dark bar shorter than orange means reorder.")
+        with col3:
+            st.plotly_chart(risk_distribution_chart(plan), use_container_width=True)
+            st.caption("Each medicine counted once per center.")
 
-    left, right = st.columns([3, 2])
-    with left:
-        st.subheader("Inventory against the replenishment threshold")
-        note = ("" if center != "All fulfillment centers"
-                else " Showing the 15 most urgent medicine and center pairs. Pick a center to see all of its medicines.")
-        st.caption("Most urgent at the top. Where the dark bar is shorter than the orange bar, "
-                   "inventory is below the reorder point." + note)
-        st.plotly_chart(inventory_vs_reorder_chart(plan, center != "All fulfillment centers"), use_container_width=True)
-    with right:
-        st.subheader("Risk distribution")
-        st.caption("Each medicine is counted once per fulfillment center. Move the growth slider to see risk shift.")
-        st.plotly_chart(risk_distribution_chart(plan), use_container_width=True)
+    with tab_recs:
+        st.caption("Sorted by urgency. Order quantity brings stock up to the reorder point plus one month of demand.")
+        table = plan.assign(risk_rank=plan["risk_level"].map({r: i for i, r in enumerate(RISK_ORDER)}))
+        table = table.sort_values(["risk_rank", "days_of_inventory"])
+        st.dataframe(
+            table[["medicine_name", "category", "fulfillment_center", "current_inventory", "avg_daily_demand",
+                   "days_of_inventory", "reorder_point", "risk_level", "recommended_order_qty", "recommendation"]],
+            hide_index=True, use_container_width=True, height=460,
+            column_config={
+                "medicine_name": "Medicine", "category": "Category", "fulfillment_center": "Center",
+                "current_inventory": st.column_config.NumberColumn("Inventory", format="%d"),
+                "avg_daily_demand": st.column_config.NumberColumn("Avg daily demand", format="%.1f"),
+                "days_of_inventory": st.column_config.NumberColumn("Days of inventory", format="%.0f"),
+                "reorder_point": st.column_config.NumberColumn("Reorder point", format="%.0f"),
+                "risk_level": "Risk level",
+                "recommended_order_qty": st.column_config.NumberColumn("Order qty", format="%d"),
+                "recommendation": "Recommendation",
+            },
+        )
 
-    st.subheader("Replenishment recommendations")
-    st.caption("Sorted by urgency. Order quantity brings stock up to the reorder point plus one month of demand.")
-    table = plan.assign(risk_rank=plan["risk_level"].map({r: i for i, r in enumerate(RISK_ORDER)}))
-    table = table.sort_values(["risk_rank", "days_of_inventory"])
-    st.dataframe(
-        table[["medicine_name", "category", "fulfillment_center", "current_inventory", "avg_daily_demand",
-               "days_of_inventory", "reorder_point", "risk_level", "recommended_order_qty", "recommendation"]],
-        hide_index=True, use_container_width=True,
-        column_config={
-            "medicine_name": "Medicine", "category": "Category", "fulfillment_center": "Center",
-            "current_inventory": st.column_config.NumberColumn("Inventory", format="%d"),
-            "avg_daily_demand": st.column_config.NumberColumn("Avg daily demand", format="%.1f"),
-            "days_of_inventory": st.column_config.NumberColumn("Days of inventory", format="%.0f"),
-            "reorder_point": st.column_config.NumberColumn("Reorder point", format="%.0f"),
-            "risk_level": "Risk level",
-            "recommended_order_qty": st.column_config.NumberColumn("Order qty", format="%d"),
-            "recommendation": "Recommendation",
-        },
-    )
-
-    with st.expander("How the numbers are calculated"):
+    with tab_method:
         st.markdown(
             f"""
 Lead time demand equals average daily demand times supplier lead time.
