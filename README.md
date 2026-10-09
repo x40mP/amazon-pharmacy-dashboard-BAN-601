@@ -35,7 +35,7 @@ The app has exactly three controls, all in the sidebar.
 | Chart | Business purpose |
 |---|---|
 | Demand trend line chart | Shows weekly units sold over 2025 plus an 8 week projection with the growth scenario applied |
-| Current inventory versus reorder point bar chart | Shows which medicines are below or near their replenishment threshold, most urgent first. With all centers selected it shows the 15 most urgent medicine and center pairs |
+| Current inventory versus reorder point bar chart | Shows which medicines are below or near their replenishment threshold, most urgent first. With all centers selected it shows the 10 most urgent medicine and center pairs |
 | Inventory risk distribution chart | Counts medicines in each risk level |
 
 The app also shows headline metrics, a stockout alert, and a replenishment table with a plain language recommendation for every medicine.
