@@ -2,6 +2,10 @@
 
 BAN 601 group project. An interactive Streamlit dashboard that helps pharmacy inventory managers and fulfillment center managers spot medicines at risk of stockout, compare current inventory with expected demand, and decide what to reorder.
 
+Live Streamlit link:
+
+https://amazon-pharmacy-dashboard-ban-601-mncappbzqw3sxlyp23x7xgx.streamlit.app
+
 ## Business problem
 
 A pharmacy has to carry enough stock to meet customer demand without tying up cash in excess inventory. Inventory managers need a simple way to see which medicines need replenishment and how much to order.
